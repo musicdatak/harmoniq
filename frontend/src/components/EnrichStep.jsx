@@ -68,8 +68,8 @@ function AutoEnrichPanel({ playlistId, onRefresh }) {
             Auto-Enrich All Sources
           </h3>
           <p className="text-gray-400 text-sm">
-            Chains MusicBrainz (identify) → GetSongBPM (key + BPM) →
-            AcousticBrainz (key + BPM) → Deezer (BPM fallback).
+            Chains MusicBrainz (identify) → SoundNet (key + BPM + energy) →
+            GetSongBPM (key + BPM) → AcousticBrainz (key + BPM) → Deezer (BPM fallback).
           </p>
         </div>
         <button
@@ -161,10 +161,16 @@ function IndividualSources({ playlistId, onRefresh }) {
       color: "border-blue-500/30 hover:border-blue-500",
     },
     {
+      id: "soundnet",
+      label: "SoundNet",
+      desc: "Key + BPM + energy (best coverage)",
+      color: "border-teal/30 hover:border-teal",
+    },
+    {
       id: "getsongbpm",
       label: "GetSongBPM",
-      desc: "Key + BPM (best coverage)",
-      color: "border-teal/30 hover:border-teal",
+      desc: "Key + BPM (fallback)",
+      color: "border-orange-500/30 hover:border-orange-500",
     },
     {
       id: "acousticbrainz",
@@ -185,7 +191,7 @@ function IndividualSources({ playlistId, onRefresh }) {
       <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
         Or run individually
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {sources.map((s) => (
           <button
             key={s.id}
