@@ -87,51 +87,69 @@ class SoundNetClient:
         return self._parse_response(data)
 
     def _parse_response(self, data: dict) -> dict | None:
-        """Extract key, BPM, energy, danceability from SoundNet response."""
+        """Extract key, BPM, energy, danceability from SoundNet response.
+
+        Example response:
+        {"key":"F","mode":"major","camelot":"7B","tempo":144,
+         "energy":70,"danceability":73,"popularity":87,...}
+        """
         if not data:
             return None
 
         result = {}
 
-        # BPM
-        bpm = data.get("bpm") or data.get("tempo")
-        if bpm:
+        # BPM — field is "tempo"
+        tempo = data.get("tempo")
+        if tempo is not None:
             try:
-                bpm_val = float(bpm)
+                bpm_val = float(tempo)
                 if bpm_val > 0:
                     result["bpm"] = bpm_val
             except (ValueError, TypeError):
                 pass
 
-        # Key — try camelot field first, then key field
-        camelot_raw = data.get("camelot") or data.get("camelot_key")
-        key_raw = data.get("key") or data.get("key_of")
+        # Key — "camelot" field has Camelot code, "key" + "mode" give musical key
+        camelot_raw = data.get("camelot")
+        key_name = data.get("key")  # e.g. "F"
+        mode = data.get("mode")  # e.g. "major"
 
         camelot = None
         if camelot_raw:
             camelot = parse_key(str(camelot_raw).strip())
-        if not camelot and key_raw:
-            camelot = parse_key(str(key_raw).strip())
+        if not camelot and key_name:
+            # Try parsing musical key like "F" or "Fm"
+            key_str = str(key_name).strip()
+            if mode and mode.lower() == "minor":
+                key_str += "m"
+            camelot = parse_key(key_str)
 
         if camelot:
             result["camelot"] = camelot
-            result["key_musical"] = str(key_raw or camelot_raw or "")
+            # Build readable musical key like "F major"
+            if key_name and mode:
+                result["key_musical"] = f"{key_name} {mode}"
+            elif key_name:
+                result["key_musical"] = str(key_name)
 
-        # Energy
+        # Energy — API returns 0-100, normalize to 0-1
         energy = data.get("energy")
         if energy is not None:
             try:
                 energy_val = float(energy)
+                if energy_val > 1:
+                    energy_val = energy_val / 100.0
                 if 0 <= energy_val <= 1:
                     result["energy"] = energy_val
             except (ValueError, TypeError):
                 pass
 
-        # Danceability
+        # Danceability — API returns 0-100, normalize to 0-1
         danceability = data.get("danceability")
         if danceability is not None:
             try:
                 dance_val = float(danceability)
+                if dance_val > 1:
+                    dance_val = dance_val / 100.0
                 if 0 <= dance_val <= 1:
                     result["danceability"] = dance_val
             except (ValueError, TypeError):
