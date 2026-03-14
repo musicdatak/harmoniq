@@ -30,6 +30,7 @@ from app.services.musicbrainz_service import mb_client
 from app.services.deezer_service import deezer_client
 from app.services.acousticbrainz_service import ab_client
 from app.services.getsongbpm_service import getsongbpm_client
+from app.services.soundnet_service import soundnet_client
 from app.engine.camelot import classify_transition, musical_to_camelot, parse_key
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
@@ -523,11 +524,83 @@ async def enrich_getsongbpm(
     return {"status": "getsongbpm_enrichment_started"}
 
 
+# --- SoundNet key+BPM+energy enrichment ---
+
+async def _enrich_soundnet_task(playlist_id: uuid.UUID) -> None:
+    """Background task: query SoundNet for key + BPM + energy on tracks missing them."""
+    if not soundnet_client.available:
+        return
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(PlaylistTrack)
+            .options(selectinload(PlaylistTrack.track))
+            .where(PlaylistTrack.playlist_id == playlist_id)
+        )
+        pts = result.scalars().all()
+
+        for pt in pts:
+            track = pt.track
+            # Skip tracks that already have both key and BPM
+            if track.key_camelot and track.bpm is not None:
+                continue
+
+            lookup = await soundnet_client.search_track(track.artist, track.title)
+            if not lookup:
+                continue
+
+            if not track.key_camelot and lookup.get("camelot"):
+                track.key_camelot = lookup["camelot"]
+                if lookup.get("key_musical"):
+                    track.key_musical = lookup["key_musical"]
+
+            if track.bpm is None and lookup.get("bpm"):
+                track.bpm = Decimal(str(round(lookup["bpm"], 2)))
+
+            if track.energy is None and lookup.get("energy"):
+                track.energy = Decimal(str(round(lookup["energy"], 4)))
+
+            if track.danceability is None and lookup.get("danceability"):
+                track.danceability = Decimal(str(round(lookup["danceability"], 4)))
+
+            if not track.analysis_source or track.analysis_source in ("deezer",):
+                track.analysis_source = "soundnet"
+            if track.key_camelot:
+                track.enrichment_status = "analyzed"
+            track.enriched_at = datetime.utcnow()
+
+            await db.commit()
+
+
+@router.post("/{playlist_id}/enrich/soundnet")
+async def enrich_soundnet(
+    playlist_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not soundnet_client.available:
+        raise HTTPException(
+            status_code=400,
+            detail="SoundNet API key not configured. Set RAPIDAPI_KEY in environment.",
+        )
+
+    result = await db.execute(
+        select(Playlist).where(Playlist.id == playlist_id, Playlist.user_id == current_user.id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    background_tasks.add_task(_enrich_soundnet_task, playlist_id)
+    return {"status": "soundnet_enrichment_started"}
+
+
 # --- Combined auto-enrich (all sources) ---
 
 async def _enrich_all_task(playlist_id: uuid.UUID) -> None:
-    """Chain all enrichment sources: MusicBrainz → GetSongBPM → AcousticBrainz → Deezer."""
+    """Chain all enrichment sources: MusicBrainz → SoundNet → GetSongBPM → AcousticBrainz → Deezer."""
     await _enrich_musicbrainz_task(playlist_id)
+    await _enrich_soundnet_task(playlist_id)
     await _enrich_getsongbpm_task(playlist_id)
     await _enrich_acousticbrainz_task(playlist_id)
     await _enrich_deezer_task(playlist_id)
@@ -540,7 +613,7 @@ async def enrich_auto(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run all enrichment sources: MusicBrainz → GetSongBPM → AcousticBrainz → Deezer."""
+    """Run all enrichment sources: MusicBrainz → SoundNet → GetSongBPM → AcousticBrainz → Deezer."""
     result = await db.execute(
         select(Playlist).where(Playlist.id == playlist_id, Playlist.user_id == current_user.id)
     )

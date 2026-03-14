@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     MAX_AUDIO_FILE_SIZE_MB: int = 50
     MUSICBRAINZ_USER_AGENT: str = "HarmoniQ/1.0.0 (contact@harmoniq.app)"
     GETSONGBPM_API_KEY: str = ""
+    RAPIDAPI_KEY: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
