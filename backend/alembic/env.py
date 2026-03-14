@@ -5,12 +5,16 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.database import Base
+from app.config import settings
+from app.database import Base, db_url
 from app.models import User, Track, Playlist, PlaylistTrack  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Override alembic.ini URL with the app's DATABASE_URL (with asyncpg driver)
+config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata
 
